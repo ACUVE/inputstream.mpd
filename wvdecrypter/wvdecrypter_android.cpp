@@ -79,8 +79,6 @@ private:
   const uint8_t *key_request_;
   size_t key_request_size_;
 
-  unsigned int max_subsample_count_;
-  //std::deque<media::CdmAdapterClient::CDMADPMSG> messages_;
   std::string pssh_, license_url_;
   AP4_UI16 key_size_;
   uint8_t key_[32];
@@ -89,18 +87,6 @@ private:
 
 void MediaDrmEventListener(AMediaDrm *media_drm, const AMediaDrmSessionId *sessionId, AMediaDrmEventType eventType, int extra, const uint8_t *data, size_t dataSize)
 {
-  if(eventType == EVENT_PROVISION_REQUIRED)
-  {
-    const uint8_t *pr(0);
-    size_t prs(0);
-    const char *url(0);
-
-    media_status_t status = AMediaDrm_getProvisionRequest(media_drm, &pr, &prs, &url);
-
-    Log(SSD_HOST::LL_DEBUG, "PrivisionData: media_drm: %X, status: %d, size: %u, url: %s", (unsigned int)media_drm, status, prs, url?url:"");
-
-    return;
-  }
   Log(SSD_HOST::LL_DEBUG, "EVENT occured (%d)", eventType);
 }
 
@@ -111,7 +97,6 @@ void MediaDrmEventListener(AMediaDrm *media_drm, const AMediaDrmSessionId *sessi
 WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseURL, const uint8_t *pssh, size_t pssh_size)
   : AP4_CencSingleSampleDecrypter(0)
   , media_drm_(0)
-  , max_subsample_count_(0)
   , license_url_(licenseURL)
   , pssh_(std::string(reinterpret_cast<const char*>(pssh), pssh_size))
   , key_size_(0)
@@ -209,7 +194,6 @@ WV_CencSingleSampleDecrypter::~WV_CencSingleSampleDecrypter()
   }
 }
 
-
 bool WV_CencSingleSampleDecrypter::ProvisionRequest()
 {
   const char *url(0);
@@ -249,25 +233,36 @@ bool WV_CencSingleSampleDecrypter::ProvisionRequest()
 
 bool WV_CencSingleSampleDecrypter::GetLicense()
 {
-  unsigned int buf_size = 32 + pssh_.size();
-  uint8_t buf[1024];
+  media_status_t status;
+  if (strcmp(&pssh_[4], "pssh") == 0)
+  {
+    status = AMediaDrm_getKeyRequest(media_drm_, &session_id_,
+          reinterpret_cast<const uint8_t*>(pssh_.data()), pssh_.size(), "video/mp4", KEY_TYPE_STREAMING,
+          0, 0,
+          &key_request_, &key_request_size_);
+  }
+  else
+  {
+    unsigned int buf_size = 32 + pssh_.size();
+    uint8_t buf[1024];
 
-  // This will request a new session and initializes session_id and message members in cdm_adapter.
-  // message will be used to create a license request in the step after CreateSession call.
-  // Initialization data is the widevine cdm pssh code in google proto style found in mpd schemeIdUri
-  static uint8_t proto[] = { 0x00, 0x00, 0x00, 0x63, 0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00, 0xed, 0xef, 0x8b, 0xa9,
-    0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed, 0x00, 0x00, 0x00, 0x00 };
+    // This will request a new session and initializes session_id and message members in cdm_adapter.
+    // message will be used to create a license request in the step after CreateSession call.
+    // Initialization data is the widevine cdm pssh code in google proto style found in mpd schemeIdUri
+    static uint8_t proto[] = { 0x00, 0x00, 0x00, 0x63, 0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00, 0xed, 0xef, 0x8b, 0xa9,
+      0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed, 0x00, 0x00, 0x00, 0x00 };
 
-  proto[3] = static_cast<uint8_t>(buf_size);
-  proto[31] = static_cast<uint8_t>(pssh_.size());
+    proto[3] = static_cast<uint8_t>(buf_size);
+    proto[31] = static_cast<uint8_t>(pssh_.size());
 
-  memcpy(buf, proto, sizeof(proto));
-  memcpy(&buf[32], pssh_.data(), pssh_.size());
+    memcpy(buf, proto, sizeof(proto));
+    memcpy(&buf[32], pssh_.data(), pssh_.size());
 
-  media_status_t status = AMediaDrm_getKeyRequest(media_drm_, &session_id_,
-        buf, buf_size, "video/mp4", KEY_TYPE_STREAMING,
-        0, 0,
-        &key_request_, &key_request_size_);
+    status = AMediaDrm_getKeyRequest(media_drm_, &session_id_,
+          buf, buf_size, "video/mp4", KEY_TYPE_STREAMING,
+          0, 0,
+          &key_request_, &key_request_size_);
+  }
 
   if (status != AMEDIA_OK || !key_request_size_)
   {
@@ -281,22 +276,6 @@ bool WV_CencSingleSampleDecrypter::GetLicense()
     return false;
 
   Log(SSD_HOST::LL_DEBUG, "License update successful");
-
-  const char *algorithms(0);
-  if((status = AMediaDrm_getPropertyString(media_drm_, "algorithms", &algorithms)) == AMEDIA_OK)
-    Log(SSD_HOST::LL_DEBUG, "Supported Cipher Algorithms: %s", algorithms);
-  else
-    Log(SSD_HOST::LL_DEBUG, "getProperty() for Cipher Algorithms failed (%d)", status);
-
-  size_t nunkv[100];
-  AMediaDrmKeyValue kv[100];
-  if((status = AMediaDrm_queryKeyStatus(media_drm_, &session_id_, kv, &numkv)) == AMEDIA_OK)
-  {
-    for(unsigned int i(0);i< numkv; ++i)
-      Log(SSD_HOST::LL_DEBUG, "Key status: %s / %s", kv[i].mKey, kv[i].mValue);
-  }
-  else
-    Log(SSD_HOST::LL_DEBUG, "queryKeyStatus() failed (%d)", status);
 
   return true;
 }
@@ -471,7 +450,6 @@ AP4_Result WV_CencSingleSampleDecrypter::SetKeyId(const AP4_UI16 key_size, const
   return AP4_SUCCESS;
 }
 
-
 /*----------------------------------------------------------------------
 |   WV_CencSingleSampleDecrypter::DecryptSampleData
 +---------------------------------------------------------------------*/
@@ -483,70 +461,21 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
   const AP4_UI16* bytes_of_cleartext_data,
   const AP4_UI32* bytes_of_encrypted_data)
 {
-   Log(SSD_HOST::LL_DEBUG, "DecryptSampleData() called");
-
-  // the output has the same size as the input
-  data_out.SetDataSize(data_in.GetDataSize());
-
   if (!media_drm_)
-  {
-    data_out.SetData(data_in.GetData(), data_in.GetDataSize());
-    return AP4_SUCCESS;
-  }
+    return AP4_ERROR_INVALID_STATE;
 
-  // check input parameters
-  if (iv == NULL)
-    return AP4_ERROR_INVALID_PARAMETERS;
-
-  if (!key_size_)
-    return AP4_ERROR_INVALID_PARAMETERS;
-
-  const AP4_UI16 dummy_ctd(0);
-  const AP4_UI32 dummy_ed(data_in.GetDataSize());
-
-  if (subsample_count)
-  {
-    if (bytes_of_cleartext_data == NULL || bytes_of_encrypted_data == NULL) {
-      return AP4_ERROR_INVALID_PARAMETERS;
-    }
-  }
+  if(data_in.GetDataSize() == 0)
+    data_out.SetData(session_id_.ptr, session_id_.length);
   else
   {
-    subsample_count = 1;
-    bytes_of_cleartext_data = &dummy_ctd;
-    bytes_of_encrypted_data = &dummy_ed;
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&subsample_count), sizeof(subsample_count));
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_cleartext_data), subsample_count * sizeof(AP4_UI16));
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_encrypted_data), subsample_count * sizeof(AP4_UI32));
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(iv), 16);
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(key_), 16);
+    data_out.AppendData(data_in.GetData(), data_in.GetDataSize());
   }
-
-  media_status_t status = AMEDIA_OK;
-  const uint8_t *input(data_in.GetData());
-  uint8_t *output(data_out.UseData());
-  uint8_t ivtmp[16];
-  memcpy(ivtmp,iv,16);
-
-  for(unsigned int i(0); i < subsample_count && status == AMEDIA_OK; ++i)
-  {
-    memcpy(output, input, *bytes_of_cleartext_data);
-    input += *bytes_of_cleartext_data;
-    output += *bytes_of_cleartext_data;
-
-    try{
-      Log(SSD_HOST::LL_DEBUG, "Decrypt %u bytes", *bytes_of_encrypted_data);
-      status =  AMediaDrm_decrypt(media_drm_, &session_id_,
-        "AES/CBC/NoPadding", key_, ivtmp, input, output, *bytes_of_encrypted_data);
-    }
-    catch(...){
-      Log(SSD_HOST::LL_DEBUG, "Oooops, Exception in AMediaDrm_decrypt() call");
-      return false;
-    }
-
-    input += *bytes_of_encrypted_data;
-    output += *bytes_of_encrypted_data;
-
-    ++bytes_of_cleartext_data;
-    ++bytes_of_encrypted_data;
-  }
-  Log(SSD_HOST::LL_DEBUG, "DecryptSampleData() finished");
-  return (status == AMEDIA_OK) ? AP4_SUCCESS : AP4_ERROR_INVALID_PARAMETERS;
+  return AP4_SUCCESS;
 }
 
 class WVDecrypter: public SSD_DECRYPTER
