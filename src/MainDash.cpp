@@ -604,7 +604,7 @@ public:
       // Make sure that the decrypter is NOT allocating memory!
       // If decrypter and addon are compiled with different DEBUG / RELEASE
       // options freeing HEAP memory will fail.
-      m_sample_data_.Reserve(m_encrypted.GetDataSize());
+      m_sample_data_.Reserve(m_encrypted.GetDataSize() + 4096);
       m_SingleSampleDecryptor->SetKeyId(m_DefaultKey?16:0, m_DefaultKey);
       if (AP4_FAILED(result = m_Decrypter->DecryptSampleData(m_encrypted, m_sample_data_, NULL)))
       {
@@ -628,6 +628,29 @@ public:
     m_eos = bEOS;
   }
 
+  void PrefixExtraData(INPUTSTREAM_INFO &info)
+  {
+#ifdef ANDROID
+    if (m_Protected_desc && m_SingleSampleDecryptor)
+    {
+      xbmc->Log(ADDON::LOG_DEBUG, "PrefixExtraData");
+
+      AP4_DataBuffer in, session;
+      session.Reserve(32);
+      if (AP4_SUCCEEDED(m_SingleSampleDecryptor->DecryptSampleData(in,session,0,0,0,0)))
+      {
+        info.m_ExtraSize += 13;
+        const uint8_t* old(info.m_ExtraData);
+        info.m_ExtraData = (const uint8_t*)malloc(info.m_ExtraSize);
+        memcpy((void*)info.m_ExtraData, "SESSIONID", 9);
+        memcpy((void*)(info.m_ExtraData+9), session.GetData(), 4);
+        memcpy((void*)(info.m_ExtraData + 13), old, info.m_ExtraSize - 13);
+        free((void*)old);
+      }
+    }
+#endif
+  }
+
   bool EOS()const{ return m_eos; };
   double DTS()const{ return m_dts; };
   double PTS()const{ return m_pts; };
@@ -636,19 +659,27 @@ public:
   AP4_Size GetSampleDataSize()const{ return m_sample_data_.GetDataSize(); };
   const AP4_Byte *GetSampleData()const{ return m_sample_data_.GetData(); };
   double GetDuration()const{ return (double)m_sample_.GetDuration() / (double)m_Track->GetMediaTimeScale(); };
+  bool IsEncrypted() { return m_Protected_desc != nullptr; };
   bool GetInformation(INPUTSTREAM_INFO &info)
   {
     if (!m_codecHandler)
       return false;
 
     bool edchanged(false);
-    if (m_bSampleDescChanged && info.m_ExtraSize != m_codecHandler->extra_data_size
-      || memcmp(info.m_ExtraData, m_codecHandler->extra_data, info.m_ExtraSize))
+#ifdef ANDROID
+    unsigned int prefixBytes(13);
+#else
+    unsigned int prefixBytes(0);
+#endif
+
+    if (m_bSampleDescChanged && info.m_ExtraSize != m_codecHandler->extra_data_size + prefixBytes
+      || memcmp(info.m_ExtraData + prefixBytes, m_codecHandler->extra_data, m_codecHandler->extra_data_size))
     {
       free((void*)(info.m_ExtraData));
       info.m_ExtraSize = m_codecHandler->extra_data_size;
       info.m_ExtraData = (const uint8_t*)malloc(info.m_ExtraSize);
       memcpy((void*)info.m_ExtraData, m_codecHandler->extra_data, info.m_ExtraSize);
+      PrefixExtraData(info);
       edchanged = true;
     }
 
@@ -1156,6 +1187,7 @@ void Session::UpdateStream(STREAM &stream)
     stream.info_.m_ExtraSize = rep->codec_private_data_.size();
     stream.info_.m_ExtraData = (const uint8_t*)malloc(stream.info_.m_ExtraSize);
     memcpy((void*)stream.info_.m_ExtraData, rep->codec_private_data_.data(), stream.info_.m_ExtraSize);
+    stream.reader_->PrefixExtraData(stream.info_);
   }
 
   // we currently use only the first track!
