@@ -117,6 +117,17 @@ WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseUR
   fclose(f);
 #endif
 
+  if (strcmp(&pssh_[4], "pssh") != 0)
+  {
+    static const uint8_t atom[] = { 0x00, 0x00, 0x00, 0x00, 0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00, 0xed, 0xef, 0x8b, 0xa9,
+      0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed, 0x00, 0x00, 0x00, 0x00 };
+
+    pssh_.insert(0, std::string(reinterpret_cast<const char*>(atom), sizeof(atom)));
+
+    pssh_[3] = static_cast<uint8_t>(pssh_.size());
+    pssh_[sizeof(atom) - 1] = static_cast<uint8_t>(pssh_.size()) - sizeof(atom);
+  }
+
   std::string strBasePath = host->GetProfilePath();
   char cSep = strBasePath.back();
   strBasePath += "widevine";
@@ -233,36 +244,10 @@ bool WV_CencSingleSampleDecrypter::ProvisionRequest()
 
 bool WV_CencSingleSampleDecrypter::GetLicense()
 {
-  media_status_t status;
-  if (strcmp(&pssh_[4], "pssh") == 0)
-  {
-    status = AMediaDrm_getKeyRequest(media_drm_, &session_id_,
-          reinterpret_cast<const uint8_t*>(pssh_.data()), pssh_.size(), "video/mp4", KEY_TYPE_STREAMING,
-          0, 0,
-          &key_request_, &key_request_size_);
-  }
-  else
-  {
-    unsigned int buf_size = 32 + pssh_.size();
-    uint8_t buf[1024];
-
-    // This will request a new session and initializes session_id and message members in cdm_adapter.
-    // message will be used to create a license request in the step after CreateSession call.
-    // Initialization data is the widevine cdm pssh code in google proto style found in mpd schemeIdUri
-    static uint8_t proto[] = { 0x00, 0x00, 0x00, 0x63, 0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00, 0xed, 0xef, 0x8b, 0xa9,
-      0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed, 0x00, 0x00, 0x00, 0x00 };
-
-    proto[3] = static_cast<uint8_t>(buf_size);
-    proto[31] = static_cast<uint8_t>(pssh_.size());
-
-    memcpy(buf, proto, sizeof(proto));
-    memcpy(&buf[32], pssh_.data(), pssh_.size());
-
-    status = AMediaDrm_getKeyRequest(media_drm_, &session_id_,
-          buf, buf_size, "video/mp4", KEY_TYPE_STREAMING,
-          0, 0,
-          &key_request_, &key_request_size_);
-  }
+  media_status_t status = AMediaDrm_getKeyRequest(media_drm_, &session_id_,
+        reinterpret_cast<const uint8_t*>(pssh_.data()), pssh_.size(), "video/mp4", KEY_TYPE_STREAMING,
+        0, 0,
+        &key_request_, &key_request_size_);
 
   if (status != AMEDIA_OK || !key_request_size_)
   {
@@ -464,8 +449,22 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
   if (!media_drm_)
     return AP4_ERROR_INVALID_STATE;
 
-  if(data_in.GetDataSize() == 0)
-    data_out.SetData(session_id_.ptr, session_id_.length);
+  if (data_in.GetDataSize() == 0)
+  {
+    data_out.SetData(reinterpret_cast<const AP4_Byte*>("CRYPTO") , 6);
+    uint16_t cryptosize = 6 + 2 + (1 + session_id_.length) + 2 * sizeof(uint64_t) + (1 + pssh_.size());
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&cryptosize), sizeof(cryptosize));
+    uint8_t dummy(session_id_.length);
+    data_out.AppendData(&dummy, 1);
+    data_out.AppendData(session_id_.ptr, session_id_.length);
+    uint64_t uuid(0xEDEF8BA979D64ACE);
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&uuid), sizeof(uuid));
+    uuid = 0xA3C827DCD51D21ED;
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&uuid), sizeof(uuid));
+    dummy = pssh_.size();
+    data_out.AppendData(&dummy, 1);
+    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(pssh_.data()), pssh_.size());
+  }
   else
   {
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&subsample_count), sizeof(subsample_count));
