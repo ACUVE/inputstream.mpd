@@ -111,7 +111,7 @@ public:
     messages_.push_back(msg);
   };
 
-  virtual AP4_Result SetKeyId(const AP4_UI16 key_size, const AP4_UI08 *key)override;
+  virtual AP4_Result SetFrameInfo(const AP4_UI16 key_size, const AP4_UI08 *key, const AP4_UI08 nal_length_size)override;
 
   virtual AP4_Result DecryptSampleData(AP4_DataBuffer& data_in,
     AP4_DataBuffer& data_out,
@@ -139,6 +139,7 @@ private:
   std::string pssh_, license_url_;
   AP4_UI16 key_size_;
   const AP4_UI08 *key_;
+  AP4_UI08 nal_length_size_;
 };
 
 /*----------------------------------------------------------------------
@@ -154,6 +155,7 @@ WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseUR
   , pssh_(std::string(reinterpret_cast<const char*>(pssh), pssh_size))
   , key_size_(0)
   , key_(0)
+  , nal_length_size_(0)
 {
   if (pssh_size > 256)
   {
@@ -436,10 +438,11 @@ SSMFAIL:
 |   WV_CencSingleSampleDecrypter::SetKeyId
 +---------------------------------------------------------------------*/
 
-AP4_Result WV_CencSingleSampleDecrypter::SetKeyId(const AP4_UI16 key_size, const AP4_UI08 *key)
+AP4_Result WV_CencSingleSampleDecrypter::SetFrameInfo(const AP4_UI16 key_size, const AP4_UI08 *key, const AP4_UI08 nal_length_size)
 {
   key_size_ = key_size;
   key_ = key;
+  nal_length_size_ = nal_length_size;
   return AP4_SUCCESS;
 }
 
