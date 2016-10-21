@@ -9,7 +9,7 @@ public:
     OPTION_PROTOCOL,
     OPTION_HEADER
   };
-  static const uint32_t version = 4;
+  static const uint32_t version = 5;
 
   virtual const char *GetLibraryPath() const = 0;
   virtual const char *GetProfilePath() const = 0;

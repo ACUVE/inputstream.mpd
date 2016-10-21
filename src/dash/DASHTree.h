@@ -143,7 +143,7 @@ namespace dash
 
     struct AdaptationSet
     {
-      AdaptationSet() :type_(NOTYPE), timescale_(0), startPTS_(0){ language_ = "unk"; };
+      AdaptationSet() :type_(NOTYPE), encrypted(false), timescale_(0), startPTS_(0){ language_ = "unk"; };
       ~AdaptationSet(){ for (std::vector<Representation* >::const_iterator b(repesentations_.begin()), e(repesentations_.end()); b != e; ++b) delete *b; };
       StreamType type_;
       uint32_t timescale_;
@@ -159,6 +159,7 @@ namespace dash
         return *segment_durations_[pos];
       };
       SegmentTemplate segtpl_;
+      bool encrypted;
     }*current_adaptationset_;
 
     struct Period

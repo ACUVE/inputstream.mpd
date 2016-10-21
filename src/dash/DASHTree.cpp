@@ -601,6 +601,7 @@ start(void *data, const char *el, const char **attr)
         }
         else if (strcmp(el, "ContentProtection") == 0)
         {
+          dash->current_adaptationset_->encrypted = true;
           if (dash->adp_pssh_.second.empty())
             dash->adp_pssh_.second = "PROTECTED";
 

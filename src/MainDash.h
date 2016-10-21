@@ -85,11 +85,11 @@ public:
 
   struct STREAM
   {
-    STREAM(dash::DASHTree &t, dash::DASHTree::StreamType s) :stream_(t, s), enabled(false), current_segment_(0), input_(0), reader_(0), input_file_(0) { memset(&info_, 0, sizeof(info_)); };
+    STREAM(dash::DASHTree &t, dash::DASHTree::StreamType s) :stream_(t, s), enabled(false), encrypted(false), current_segment_(0), input_(0), reader_(0), input_file_(0) { memset(&info_, 0, sizeof(info_)); };
     ~STREAM() { disable(); free((void*)info_.m_ExtraData); };
     void disable();
 
-    bool enabled;
+    bool enabled, encrypted;
     uint32_t current_segment_;
     KodiDASHStream stream_;
     AP4_ByteStream *input_;
@@ -102,6 +102,7 @@ public:
 
   STREAM *GetStream(unsigned int sid)const { return sid - 1 < streams_.size() ? streams_[sid - 1] : 0; };
   unsigned int GetStreamCount() const { return streams_.size(); };
+  const AP4_DataBuffer &GetCryptoData() { return m_cryptoData; };
   uint8_t getMediaTypeMask() const { return media_type_mask_; };
   std::uint16_t GetWidth()const { return width_; };
   std::uint16_t GetHeight()const { return height_; };
@@ -128,6 +129,7 @@ private:
   std::string profile_path_;
   void * decrypterModule_;
   SSD_DECRYPTER *decrypter_;
+  AP4_DataBuffer m_cryptoData;
 
   KodiDASHTree dashtree_;
 

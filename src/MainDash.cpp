@@ -388,6 +388,7 @@ public:
   AVCCodecHandler(AP4_SampleDescription *sd)
     : CodecHandler(sd)
     , countPictureSetIds(0)
+    , needSliceInfo(false)
   {
     unsigned int width(0), height(0);
     if (AP4_VideoSampleDescription *video_sample_description = AP4_DYNAMIC_CAST(AP4_VideoSampleDescription, sample_description))
@@ -400,13 +401,16 @@ public:
       extra_data_size = avc->GetRawBytes().GetDataSize();
       extra_data = avc->GetRawBytes().GetData();
       countPictureSetIds = avc->GetPictureParameters().ItemCount();
-      if (countPictureSetIds > 1 || !width || !height)
-        naluLengthSize = avc->GetNaluLengthSize();
+      naluLengthSize = avc->GetNaluLengthSize();
+      needSliceInfo = (countPictureSetIds > 1 || !width || !height);
     }
   }
 
   virtual void UpdatePPSId(AP4_DataBuffer const &buffer) override
   {
+    if (!needSliceInfo)
+      return;
+
     //Search the Slice header NALU
     const AP4_UI08 *data(buffer.GetData());
     unsigned int data_size(buffer.GetDataSize());
@@ -429,7 +433,7 @@ public:
 
       // Stop further NALU processing
       if (countPictureSetIds < 2)
-        naluLengthSize = 0;
+        needSliceInfo = false;
 
       unsigned int nal_unit_type = *data & 0x1F;
 
@@ -489,6 +493,7 @@ public:
   };
 private:
   unsigned int countPictureSetIds;
+  bool needSliceInfo;
 };
 
 /***********************   HEVC   ************************/
@@ -605,7 +610,8 @@ public:
       // If decrypter and addon are compiled with different DEBUG / RELEASE
       // options freeing HEAP memory will fail.
       m_sample_data_.Reserve(m_encrypted.GetDataSize() + 4096);
-      m_SingleSampleDecryptor->SetKeyId(m_DefaultKey?16:0, m_DefaultKey);
+      m_SingleSampleDecryptor->SetFrameInfo(m_DefaultKey?16:0, m_DefaultKey, m_codecHandler->naluLengthSize);
+
       if (AP4_FAILED(result = m_Decrypter->DecryptSampleData(m_encrypted, m_sample_data_, NULL)))
       {
         xbmc->Log(ADDON::LOG_ERROR, "Decrypt Sample returns failure!");
@@ -628,29 +634,6 @@ public:
     m_eos = bEOS;
   }
 
-  void PrefixExtraData(INPUTSTREAM_INFO &info)
-  {
-#ifdef ANDROID
-    if (m_Protected_desc && m_SingleSampleDecryptor)
-    {
-      xbmc->Log(ADDON::LOG_DEBUG, "PrefixExtraData");
-
-      AP4_DataBuffer in, session;
-      session.Reserve(32);
-      if (AP4_SUCCEEDED(m_SingleSampleDecryptor->DecryptSampleData(in,session,0,0,0,0)))
-      {
-        info.m_ExtraSize += 13;
-        const uint8_t* old(info.m_ExtraData);
-        info.m_ExtraData = (const uint8_t*)malloc(info.m_ExtraSize);
-        memcpy((void*)info.m_ExtraData, "SESSIONID", 9);
-        memcpy((void*)(info.m_ExtraData+9), session.GetData(), 4);
-        memcpy((void*)(info.m_ExtraData + 13), old, info.m_ExtraSize - 13);
-        free((void*)old);
-      }
-    }
-#endif
-  }
-
   bool EOS()const{ return m_eos; };
   double DTS()const{ return m_dts; };
   double PTS()const{ return m_pts; };
@@ -666,20 +649,14 @@ public:
       return false;
 
     bool edchanged(false);
-#ifdef ANDROID
-    unsigned int prefixBytes(13);
-#else
-    unsigned int prefixBytes(0);
-#endif
 
-    if (m_bSampleDescChanged && info.m_ExtraSize != m_codecHandler->extra_data_size + prefixBytes
-      || memcmp(info.m_ExtraData + prefixBytes, m_codecHandler->extra_data, m_codecHandler->extra_data_size))
+    if (m_bSampleDescChanged && info.m_ExtraSize != m_codecHandler->extra_data_size
+      || memcmp(info.m_ExtraData, m_codecHandler->extra_data, m_codecHandler->extra_data_size))
     {
       free((void*)(info.m_ExtraData));
       info.m_ExtraSize = m_codecHandler->extra_data_size;
       info.m_ExtraData = (const uint8_t*)malloc(info.m_ExtraSize);
       memcpy((void*)info.m_ExtraData, m_codecHandler->extra_data, info.m_ExtraSize);
-      PrefixExtraData(info);
       edchanged = true;
     }
 
@@ -1075,6 +1052,7 @@ bool Session::initialize()
       strcpy(stream.info_.m_language, adp->language_.c_str());
       stream.info_.m_ExtraData = nullptr;
       stream.info_.m_ExtraSize = 0;
+      stream.encrypted = adp->encrypted;
 
       UpdateStream(stream);
 
@@ -1169,7 +1147,16 @@ bool Session::initialize()
       b64_decode(dashtree_.pssh_.second.data(), dashtree_.pssh_.second.size(), init_data.UseData(), init_data_size);
       init_data.SetDataSize(init_data_size);
     }
-    return (single_sample_decryptor_ = CreateSingleSampleDecrypter(init_data))!=0;
+    if ((single_sample_decryptor_ = CreateSingleSampleDecrypter(init_data)) != 0)
+    {
+#ifdef ANDROID
+      AP4_DataBuffer in;
+      m_cryptoData.Reserve(1024);
+      single_sample_decryptor_->DecryptSampleData(in, m_cryptoData, 0, 0, 0, 0);
+#endif
+      return true;
+    }
+    return false;
   }
   return true;
 }
@@ -1187,7 +1174,6 @@ void Session::UpdateStream(STREAM &stream)
     stream.info_.m_ExtraSize = rep->codec_private_data_.size();
     stream.info_.m_ExtraData = (const uint8_t*)malloc(stream.info_.m_ExtraSize);
     memcpy((void*)stream.info_.m_ExtraData, rep->codec_private_data_.data(), stream.info_.m_ExtraSize);
-    stream.reader_->PrefixExtraData(stream.info_);
   }
 
   // we currently use only the first track!
@@ -1475,8 +1461,21 @@ extern "C" {
     Session::STREAM *stream(session->GetStream(streamid));
 
     if (stream)
+    {
+#ifdef ANDROID
+      if (stream->encrypted)
+      {
+        static AP4_DataBuffer tmp;
+        tmp.SetData(session->GetCryptoData().GetData(), session->GetCryptoData().GetDataSize());
+        tmp.AppendData(stream->info_.m_ExtraData, stream->info_.m_ExtraSize);
+        INPUTSTREAM_INFO tmpInfo = stream->info_;
+        tmpInfo.m_ExtraData = tmp.GetData();
+        tmpInfo.m_ExtraSize = tmp.GetDataSize();
+        return tmpInfo;
+      }
+#endif
       return stream->info_;
-
+    }
     return dummy_info;
   }
 
