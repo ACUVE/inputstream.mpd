@@ -457,17 +457,12 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
     uint8_t dummy(session_id_.length);
     data_out.AppendData(&dummy, 1);
     data_out.AppendData(session_id_.ptr, session_id_.length);
-    uint64_t uuid(0xEDEF8BA979D64ACE);
-    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&uuid), sizeof(uuid));
-    uuid = 0xA3C827DCD51D21ED;
-    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&uuid), sizeof(uuid));
-    dummy = pssh_.size();
-    data_out.AppendData(&dummy, 1);
-    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(pssh_.data()), pssh_.size());
+    uint8_t keysystem[16] = { 0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed };
+    data_out.AppendData(keysystem, 16);
   }
   else
   {
-    data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&subsample_count), sizeof(subsample_count));
+    data_out.SetData(reinterpret_cast<const AP4_Byte*>(&subsample_count), sizeof(subsample_count));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_cleartext_data), subsample_count * sizeof(AP4_UI16));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_encrypted_data), subsample_count * sizeof(AP4_UI32));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(iv), 16);
