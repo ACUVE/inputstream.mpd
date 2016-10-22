@@ -52,7 +52,7 @@ public:
 
   bool initialized()const { return media_drm_ != 0; };
 
-  virtual AP4_Result SetKeyId(const AP4_UI16 key_size, const AP4_UI08 *key)override;
+  virtual AP4_Result SetFrameInfo(const AP4_UI16 key_size, const AP4_UI08 *key, const AP4_UI08 nal_length_size) override;
 
   virtual AP4_Result DecryptSampleData(AP4_DataBuffer& data_in,
     AP4_DataBuffer& data_out,
@@ -82,6 +82,7 @@ private:
   std::string pssh_, license_url_;
   AP4_UI16 key_size_;
   uint8_t key_[32];
+  AP4_UI08 nal_length_size_;
 };
 
 
@@ -100,6 +101,7 @@ WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseUR
   , license_url_(licenseURL)
   , pssh_(std::string(reinterpret_cast<const char*>(pssh), pssh_size))
   , key_size_(0)
+  , nal_length_size_(0)
 {
   SetParentIsOwner(false);
 
@@ -425,13 +427,14 @@ SSMFAIL:
 |   WV_CencSingleSampleDecrypter::SetKeyId
 +---------------------------------------------------------------------*/
 
-AP4_Result WV_CencSingleSampleDecrypter::SetKeyId(const AP4_UI16 key_size, const AP4_UI08 *key)
+AP4_Result WV_CencSingleSampleDecrypter::SetFrameInfo(const AP4_UI16 key_size, const AP4_UI08 *key, const AP4_UI08 nal_length_size)
 {
   if(key_size > 32)
    return AP4_ERROR_INVALID_PARAMETERS;
 
   key_size_ = key_size;
   memcpy(key_, key,  key_size);
+  nal_length_size_ = nal_length_size;
   return AP4_SUCCESS;
 }
 
@@ -462,12 +465,41 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
   }
   else
   {
+    if (nal_length_size_ > 4)
+    {
+      Log(SSD_HOST::LL_ERROR, "Nalu length size > 4 not supported");
+      return AP4_ERROR_NOT_SUPPORTED;
+    }
+    
     data_out.SetData(reinterpret_cast<const AP4_Byte*>(&subsample_count), sizeof(subsample_count));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_cleartext_data), subsample_count * sizeof(AP4_UI16));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_encrypted_data), subsample_count * sizeof(AP4_UI32));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(iv), 16);
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(key_), 16);
-    data_out.AppendData(data_in.GetData(), data_in.GetDataSize());
+    
+    if (nal_length_size_ && subsample_count)
+    {
+      //convert avc -> annexb by simply removing nal 4-byte header with anex-b startcode 
+      AP4_Size oldSize(data_out.GetDataSize());
+      data_out.SetDataSize(data_out.GetDataSize() + data_in.GetDataSize() + (4 - nal_length_size_) * subsample_count);
+
+      const AP4_Byte *packet_in(data_in.UseData());
+      AP4_Byte *packet_out(data_out.UseData() + oldSize);
+      AP4_UI16 *clrb(reinterpret_cast<AP4_UI16*>(data_out.UseData() + sizeof(subsample_count)));
+      AP4_UI32 *ciphb(reinterpret_cast<AP4_UI32*>(clrb + subsample_count));
+
+      for (unsigned int i(0); i < subsample_count; ++i)
+      {
+        //Anex-B Start pos
+        packet_out[0] = packet_out[1] = packet_out[2] = 0;packet_out[3] = 1;
+        memcpy(&packet_out[4], &packet_in[nal_length_size_], clrb[i] + ciphb[i] - nal_length_size_);
+        packet_in += (clrb[i] + ciphb[i]);
+        clrb[i] += (4 - nal_length_size_);
+        packet_out += (clrb[i] + ciphb[i]);
+      }
+    }
+    else
+      data_out.AppendData(data_in.GetData(), data_in.GetDataSize());
   }
   return AP4_SUCCESS;
 }
