@@ -156,7 +156,7 @@ WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseUR
   strBasePath += cSep;
   host->CreateDirectory(strBasePath.c_str());
 
-  uint8_t keysystem[16]={0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed};
+  uint8_t keysystem[16] = { 0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed };
   media_drm_ = AMediaDrm_createByUUID(keysystem);
   if (!media_drm_)
   {
@@ -166,7 +166,7 @@ WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseUR
   Log(SSD_HOST::LL_DEBUG, "Successful instanciated media_drm: %X", (unsigned int)media_drm_);
 
   media_status_t status;
-  if((status = AMediaDrm_setOnEventListener(media_drm_, MediaDrmEventListener)) != AMEDIA_OK)
+  if ((status = AMediaDrm_setOnEventListener(media_drm_, MediaDrmEventListener)) != AMEDIA_OK)
   {
     Log(SSD_HOST::LL_ERROR, "Unable to install Event Listener (%d)", status);
     AMediaDrm_release(media_drm_);
@@ -175,7 +175,7 @@ WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseUR
   }
 
   memset(&session_id_, 0, sizeof(session_id_));
-  if((status = AMediaDrm_openSession(media_drm_, &session_id_)) != AMEDIA_OK)
+  if ((status = AMediaDrm_openSession(media_drm_, &session_id_)) != AMEDIA_OK)
   {
     Log(SSD_HOST::LL_ERROR, "Unable to open DRM session (%d)", status);
     AMediaDrm_release(media_drm_);
@@ -199,7 +199,7 @@ WV_CencSingleSampleDecrypter::WV_CencSingleSampleDecrypter(std::string licenseUR
 
 WV_CencSingleSampleDecrypter::~WV_CencSingleSampleDecrypter()
 {
-  if(media_drm_)
+  if (media_drm_)
   {
     AMediaDrm_closeSession(media_drm_, &session_id_);
     AMediaDrm_release(media_drm_);
@@ -213,7 +213,7 @@ bool WV_CencSingleSampleDecrypter::ProvisionRequest()
 
   media_status_t status = AMediaDrm_getProvisionRequest(media_drm_, &key_request_, &key_request_size_, &url);
 
-  if(status != AMEDIA_OK || !url)
+  if (status != AMEDIA_OK || !url)
   {
     Log(SSD_HOST::LL_ERROR, "PrivisionData request failed with status: %d", status);
     return false;
@@ -247,9 +247,9 @@ bool WV_CencSingleSampleDecrypter::ProvisionRequest()
 bool WV_CencSingleSampleDecrypter::GetLicense()
 {
   media_status_t status = AMediaDrm_getKeyRequest(media_drm_, &session_id_,
-        reinterpret_cast<const uint8_t*>(pssh_.data()), pssh_.size(), "video/mp4", KEY_TYPE_STREAMING,
-        0, 0,
-        &key_request_, &key_request_size_);
+    reinterpret_cast<const uint8_t*>(pssh_.data()), pssh_.size(), "video/mp4", KEY_TYPE_STREAMING,
+    0, 0,
+    &key_request_, &key_request_size_);
 
   if (status != AMEDIA_OK || !key_request_size_)
   {
@@ -385,8 +385,8 @@ bool WV_CencSingleSampleDecrypter::SendSessionMessage()
       int i(0), numTokens = jsmn_parse(&jsn, response.c_str(), response.size(), tokens, 100);
 
       for (; i < numTokens; ++i)
-        if (tokens[i].type == JSMN_STRING && tokens[i].size==1
-          && strncmp(response.c_str() + tokens[i].start, blocks[3].c_str() + 2, tokens[i].end - tokens[i].start)==0)
+        if (tokens[i].type == JSMN_STRING && tokens[i].size == 1
+          && strncmp(response.c_str() + tokens[i].start, blocks[3].c_str() + 2, tokens[i].end - tokens[i].start) == 0)
           break;
 
       if (i < numTokens)
@@ -400,7 +400,7 @@ bool WV_CencSingleSampleDecrypter::SendSessionMessage()
           status = AMediaDrm_provideKeyResponse(media_drm_, &session_id_, decoded, decoded_size, &dummy_ksid);
         }
         else
-          status = AMediaDrm_provideKeyResponse(media_drm_, &session_id_,reinterpret_cast<const uint8_t*>(response.c_str() + tokens[i + 1].start), tokens[i + 1].end - tokens[i + 1].start, &dummy_ksid);
+          status = AMediaDrm_provideKeyResponse(media_drm_, &session_id_, reinterpret_cast<const uint8_t*>(response.c_str() + tokens[i + 1].start), tokens[i + 1].end - tokens[i + 1].start, &dummy_ksid);
       }
       else
       {
@@ -413,7 +413,8 @@ bool WV_CencSingleSampleDecrypter::SendSessionMessage()
       Log(SSD_HOST::LL_ERROR, "Unsupported License request template (response)");
       goto SSMFAIL;
     }
-  } else //its binary - simply push the returned data as update
+  }
+  else //its binary - simply push the returned data as update
     status = AMediaDrm_provideKeyResponse(media_drm_, &session_id_, reinterpret_cast<const uint8_t*>(response.data()), response.size(), &dummy_ksid);
 
   return status == AMEDIA_OK;
@@ -429,11 +430,11 @@ SSMFAIL:
 
 AP4_Result WV_CencSingleSampleDecrypter::SetFrameInfo(const AP4_UI16 key_size, const AP4_UI08 *key, const AP4_UI08 nal_length_size)
 {
-  if(key_size > 32)
-   return AP4_ERROR_INVALID_PARAMETERS;
+  if (key_size > 32)
+    return AP4_ERROR_INVALID_PARAMETERS;
 
   key_size_ = key_size;
-  memcpy(key_, key,  key_size);
+  memcpy(key_, key, key_size);
   nal_length_size_ = nal_length_size;
   return AP4_SUCCESS;
 }
@@ -454,8 +455,8 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
 
   if (data_in.GetDataSize() == 0)
   {
-    data_out.SetData(reinterpret_cast<const AP4_Byte*>("CRYPTO") , 6);
-    uint16_t cryptosize = 6 + 2 + (1 + session_id_.length) + 2 * sizeof(uint64_t) + (1 + pssh_.size());
+    data_out.SetData(reinterpret_cast<const AP4_Byte*>("CRYPTO"), 6);
+    uint16_t cryptosize = 6 + 2 + (1 + session_id_.length) + 16;
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(&cryptosize), sizeof(cryptosize));
     uint8_t dummy(session_id_.length);
     data_out.AppendData(&dummy, 1);
@@ -470,20 +471,36 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
       Log(SSD_HOST::LL_ERROR, "Nalu length size > 4 not supported");
       return AP4_ERROR_NOT_SUPPORTED;
     }
-    
+
     data_out.SetData(reinterpret_cast<const AP4_Byte*>(&subsample_count), sizeof(subsample_count));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_cleartext_data), subsample_count * sizeof(AP4_UI16));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(bytes_of_encrypted_data), subsample_count * sizeof(AP4_UI32));
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(iv), 16);
     data_out.AppendData(reinterpret_cast<const AP4_Byte*>(key_), 16);
-    
+
     if (nal_length_size_ && subsample_count)
     {
+      //check NAL / subsample
+      const AP4_Byte *packet_in_tmp(data_in.GetData()), *packet_in_tmp_e(data_in.GetData() + data_in.GetDataSize());
+      while (packet_in_tmp < packet_in_tmp_e)
+      {
+        uint32_t nalsize(0);
+        for (unsigned int i(0); i < nal_length_size_; ++i) { nalsize = (nalsize << 8) + *packet_in_tmp++; };
+        if (nalsize + nal_length_size_ != *bytes_of_cleartext_data + *bytes_of_encrypted_data)
+        {
+          Log(SSD_HOST::LL_ERROR, "Mismatch NAL / Subsample (nls: %d) %d -> &d ", nal_length_size_, nalsize + nal_length_size_, *bytes_of_cleartext_data + *bytes_of_encrypted_data);
+          return AP4_ERROR_NOT_SUPPORTED;
+        }
+        ++bytes_of_cleartext_data;
+        ++bytes_of_encrypted_data;
+        packet_in_tmp += nalsize;
+      }
+
       //convert avc -> annexb by simply removing nal 4-byte header with anex-b startcode 
       AP4_Size oldSize(data_out.GetDataSize());
       data_out.SetDataSize(data_out.GetDataSize() + data_in.GetDataSize() + (4 - nal_length_size_) * subsample_count);
 
-      const AP4_Byte *packet_in(data_in.UseData());
+      const AP4_Byte *packet_in(data_in.GetData());
       AP4_Byte *packet_out(data_out.UseData() + oldSize);
       AP4_UI16 *clrb(reinterpret_cast<AP4_UI16*>(data_out.UseData() + sizeof(subsample_count)));
       AP4_UI32 *ciphb(reinterpret_cast<AP4_UI32*>(clrb + subsample_count));
@@ -491,7 +508,7 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
       for (unsigned int i(0); i < subsample_count; ++i)
       {
         //Anex-B Start pos
-        packet_out[0] = packet_out[1] = packet_out[2] = 0;packet_out[3] = 1;
+        packet_out[0] = packet_out[1] = packet_out[2] = 0; packet_out[3] = 1;
         memcpy(&packet_out[4], &packet_in[nal_length_size_], clrb[i] + ciphb[i] - nal_length_size_);
         packet_in += (clrb[i] + ciphb[i]);
         clrb[i] += (4 - nal_length_size_);
@@ -504,7 +521,7 @@ AP4_Result WV_CencSingleSampleDecrypter::DecryptSampleData(
   return AP4_SUCCESS;
 }
 
-class WVDecrypter: public SSD_DECRYPTER
+class WVDecrypter : public SSD_DECRYPTER
 {
 public:
   // Return supported URN if type matches to capabikitues, otherwise null
